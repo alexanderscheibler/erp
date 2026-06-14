@@ -14,7 +14,7 @@ services:
       - odoo-db:/var/lib/postgresql/data
 
   odoo:
-    image: odoo:19
+    build: .
     depends_on:
       db:
         condition: service_healthy
@@ -24,15 +24,6 @@ services:
       HOST: db
       USER: odoo
       PASSWORD: odoo
-    command: >
-      odoo
-      --db_host=db
-      --db_user=odoo
-      --db_password=odoo
-      -d odoo_db
-      -i stock,point_of_sale,sale_management
-      --without-demo=False
-      --db-filter=odoo_db
     volumes:
       - odoo-web:/var/lib/odoo
     healthcheck:
@@ -41,6 +32,18 @@ services:
       timeout: 10s
       retries: 20
       start_period: 120s
+
+  api:
+    image: postgrest/postgrest:v14.13
+    ports:
+      - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgres://odoo:odoo@db:5432/odoo_db
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: odoo
+    depends_on:
+      odoo:
+        condition: service_healthy
 
 volumes:
   odoo-db:
