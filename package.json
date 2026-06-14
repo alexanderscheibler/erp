@@ -1,0 +1,27 @@
+{
+  "name": "erp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "description": "E2E suite for ERP Odoo 19",
+  "private": true,
+  "repository": "git@github.com:alexanderscheibler/erp.git",
+  "author": "Alexander Scheibler <60936422+alexanderscheibler@users.noreply.github.com>",
+  "license": "MIT",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "infra:up": "docker compose up -d && ./scripts/wait-for-odoo.sh",
+    "infra:down": "docker compose down -v --remove-orphans",
+    "e2e": "./scripts/run_e2e.sh"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}

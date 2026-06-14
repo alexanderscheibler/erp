@@ -1,0 +1,12 @@
+.idea
+.vscode
+config/
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+.env.local
+
+# Playwright
+/playwright/.cache/
+/playwright/.auth/
