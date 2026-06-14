@@ -124,82 +124,134 @@ export class InventoryPage extends BasePage {
     }
   }
 
-  /**
-   * Navigate to Internal Transfers to initiate a store replenishment.
-   */
-  async goToInternalTransfers(): Promise<void> {
-    await this.page.locator(".o_menu_sections").getByRole("menuitem", { name: "Operations" }).click();
-    await this.page.getByRole("menuitem", { name: "Transfers" }).click();
-    await this.waitForIdle();
-
-    await this.page.getByRole("link", { name: "Internal Transfers" }).first().click();
-    await this.waitForIdle();
+  /** The internal-transfer reference (WH/INT/xxxxx) in the form heading. */
+  private get transferReferenceField() {
+    return this.page.locator('.o_form_sheet h1 [name="name"]');
   }
 
   /**
-   * Create an internal transfer from one location to another.
-   * Returns the transfer reference.
+   * Navigate to Internal Transfers (Inventory → Operations → Internal).
+   * In Odoo 19 the entry is labelled "Internal" (no "Transfers" submenu) and
+   * resolves to /odoo/internal.
+   */
+  async goToInternalTransfers(): Promise<void> {
+    await this.page.getByRole("button", { name: "Operations" }).click();
+    await this.page.getByRole("menuitem", { name: "Internal", exact: true }).click();
+  }
+
+  /**
+   * Select a many2one location field (Source / Destination) by its exact path.
+   *
+   * Location options render their full path (e.g. "WH/Stock/Shelf A"), so we
+   * match exactly to avoid "WH/Stock" also matching "WH/Stock/Shelf A".
+   *
+   * The inline autocomplete list is truncated, so a location may not appear in
+   * it — in which case Odoo offers a "Search more..." option that opens a
+   * list-view dialog. We handle both paths: click the inline option when it is
+   * present, otherwise fall back through "Search more..." → search → pick row.
+   */
+  private async selectLocation(fieldName: string, value: string): Promise<void> {
+    const leaf = value.split("/").pop() ?? value;
+    const input = this.page.locator(`[name="${fieldName}"] input`);
+    await input.click();
+    await input.fill(value);
+
+    const exactOption = this.page.getByRole("option", { name: value, exact: true });
+    const searchMore = this.page.getByRole("option", { name: "Search more..." });
+
+    // Wait for the dropdown to settle: either the exact match rendered, or only
+    // the "Search more..." escape hatch is offered (location not in the list).
+    await expect(exactOption.or(searchMore).first()).toBeVisible();
+
+    if (await exactOption.isVisible()) {
+      await exactOption.click();
+      return;
+    }
+
+    // Fallback: open the "Search more..." dialog, filter by the location's leaf
+    // name, and select the matching row.
+    await searchMore.click();
+    const dialog = this.page.getByRole("dialog");
+    // The dialog's search box has no accessible name; target the searchview
+    // input, type the leaf, and confirm the facet with Enter.
+    const search = dialog.locator(".o_searchview_input, .o_searchview input").first();
+    await search.fill(leaf);
+    await search.press("Enter");
+
+    // Single-select: clicking the matching data row selects it and closes.
+    await dialog
+      .locator("tr.o_data_row")
+      .filter({ hasText: leaf })
+      .first()
+      .click();
+    await expect(dialog).toBeHidden();
+  }
+
+  /**
+   * Create an internal transfer moving { product, quantity } lines from one
+   * location to another. Returns the transfer reference (e.g. "WH/INT/00001").
+   *
+   * Reuses the receipt-form mechanics (same `move_ids` lines table, same
+   * "Add a Product" control, same commit-on-add re-render handled via toPass).
    */
   async createInternalTransfer(
     fromLocation: string,
     toLocation: string,
     lines: ReceiptLine[]
   ): Promise<string> {
-    await this.clickNew();
-    await this.waitForIdle();
+    await this.page.getByRole("button", { name: "New" }).click();
 
-    // Set source and destination locations
-    await this.fillMany2One("location_id", fromLocation);
-    await this.fillMany2One("location_dest_id", toLocation);
+    // Source defaults to WH/Stock but we set both explicitly so each test owns
+    // its initial state regardless of operation-type defaults.
+    await this.selectLocation("location_id", fromLocation);
+    await this.selectLocation("location_dest_id", toLocation);
 
-    // Add product lines
     for (const line of lines) {
-      const productInput = this.page
-        .locator(".o_field_one2many[name='move_ids_without_package'] .o_field_widget[name='product_id'] input")
-        .last();
-      await productInput.fill(line.product);
+      await this.page.getByRole("button", { name: "Add a Product" }).click();
 
-      await this.page
-        .locator(".dropdown-menu .o_m2o_dropdown_option:not(.o_m2o_dropdown_option_search_create)")
-        .first()
-        .click();
+      // Adding a row commits the previous (still-edited) line; that async
+      // re-render can tear down this row's autocomplete before we click the
+      // option. Treat type+select as one self-correcting unit (web-first
+      // auto-retry, not a fixed sleep). We also drop the "Create…" options.
+      await expect(async () => {
+        await this.page
+          .getByPlaceholder("Search a product")
+          .fill(line.search ?? line.product);
 
-      await this.waitForIdle();
+        await this.page
+          .getByRole("option", { name: line.product })
+          .filter({ hasNotText: "Create" })
+          .first()
+          .click({ timeout: 2_000 });
+      }).toPass({ timeout: 15_000 });
 
-      const qtyField = this.page
-        .locator(".o_field_one2many[name='move_ids_without_package'] .o_field_widget[name='product_uom_qty'] input")
-        .last();
-      await qtyField.fill(String(line.quantity));
-
-      if (lines.indexOf(line) < lines.length - 1) {
-        await this.page.getByRole("button", { name: "Add a line" }).click();
-        await this.waitForIdle();
-      }
+      // Demand qty — stable Odoo field name attr (no role/label on the cell).
+      await this.activeLineRow
+        .locator('[name="product_uom_qty"] input')
+        .fill(String(line.quantity));
     }
 
-    await this.save();
+    await this.page.getByRole("button", { name: "Save manually" }).click();
 
-    const ref = await this.page
-      .locator(".o_field_widget[name='name'] span, .o_field_char[name='name']")
-      .first()
-      .innerText();
-
-    return ref.trim();
+    // Heading shows "New Transfer" until the sequence is assigned; assert the
+    // WH/INT pattern (auto-retry) before reading the reference.
+    await expect(this.transferReferenceField).toHaveText(/WH\/INT\/\d+/);
+    return (await this.transferReferenceField.innerText()).trim();
   }
 
+  /**
+   * Validate the currently open internal transfer.
+   * Any confirmation dialog (backorder / immediate transfer) is conditional,
+   * so we confirm it only when present. The Done assertion lives in the spec.
+   */
   async validateTransfer(): Promise<void> {
     await this.page.getByRole("button", { name: "Validate" }).click();
 
-    const dialog = this.page.locator(".modal-dialog", { hasText: "Immediate Transfer" });
-    if (await dialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await dialog.getByRole("button", { name: "Validate" }).click();
+    const confirmButton = this.page
+      .getByRole("dialog")
+      .getByRole("button", { name: /Validate|Apply|Create Backorder|Confirm/ });
+    if (await confirmButton.isVisible().catch(() => false)) {
+      await confirmButton.click();
     }
-
-    await this.waitForIdle();
-
-    await expect(
-      this.page.locator(".o_statusbar_status button.active, .o_status_label"),
-      "Transfer should be in Done state"
-    ).toContainText("Done");
   }
 }
