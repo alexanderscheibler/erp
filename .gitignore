@@ -3,7 +3,7 @@
 .DS_Store
 */*/.DS_Store
 config/
-data/
+docs/
 node_modules/
 /test-results/
 /playwright-report/
