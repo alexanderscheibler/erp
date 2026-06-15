@@ -16,9 +16,11 @@ export class LoginPage {
   }
 
   async login(username: string, password: string): Promise<void> {
-    await this.page.locator('input[name="login"]').fill(username);
-    await this.page.locator('input[name="password"]').fill(password);
-    await this.page.locator('button[type="submit"]').click();
+    // Role/label locators per the project hierarchy: the login form labels its
+    // inputs "Email"/"Password" and the submit button reads "Log in".
+    await this.page.getByLabel("Email").fill(username);
+    await this.page.getByLabel("Password").fill(password);
+    await this.page.getByRole("button", { name: "Log in" }).click();
 
     // Wait until we've left the login page
     await this.page.waitForURL("**/odoo**", { timeout: 30_000 });

@@ -9,15 +9,25 @@
   "license": "MIT",
   "scripts": {
     "test": "playwright test",
-    "test:headed": "playwright test --headed",
+    "test:headed": "playwright test",
     "test:ui": "playwright test --ui",
     "test:report": "playwright show-report",
     "infra:up": "docker compose up -d && ./scripts/wait-for-odoo.sh",
     "infra:down": "docker compose down -v --remove-orphans",
-    "e2e": "./scripts/run_e2e.sh"
+    "e2e": "./scripts/run_e2e.sh",
+    "lint": "eslint \"**/*.{ts,tsx}\" --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern build",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "@eslint/js": "^10.0.1",
+    "dotenv": "^17.4.2",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.4",
+    "typescript-eslint": "^8.61.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

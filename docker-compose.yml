@@ -27,11 +27,15 @@ services:
     volumes:
       - odoo-web:/var/lib/odoo
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8069/web/login | grep -q 'Odoo' && exit 0 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf http://localhost:8069/web/login | grep -q 'Odoo' && exit 0 || exit 1",
+        ]
       interval: 15s
       timeout: 10s
       retries: 20
-      start_period: 120s
+      start_period: 300s
 
   api:
     image: postgrest/postgrest:v14.13

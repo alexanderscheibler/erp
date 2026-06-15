@@ -1,14 +1,14 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
  */
-import dotenv from 'dotenv';
-import path from 'path';
+import dotenv from "dotenv";
+import path from "path";
 dotenv.config({
   quiet: true,
-  path: path.resolve(__dirname, '.env')
+  path: path.resolve(__dirname, ".env"),
 });
 
 const BASE_URL = process.env.ODOO_BASE_URL ?? "http://localhost:8069";
@@ -17,7 +17,7 @@ const BASE_URL = process.env.ODOO_BASE_URL ?? "http://localhost:8069";
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-  testDir: './tests/e2e',
+  testDir: "./tests/e2e",
   /* Run tests in files in parallel */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -60,8 +60,8 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: [
     {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
     },
 
     // {
