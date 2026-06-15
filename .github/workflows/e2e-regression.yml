@@ -1,0 +1,126 @@
+# .github/workflows/e2e-regression.yml
+name: ERP E2E Regression Suite
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/*'
+  pull_request:
+    branches:
+      - main
+
+env:
+  ODOO_BASE_URL: "http://localhost:8069"
+  ODOO_USER: "admin"
+  ODOO_PASSWORD: "admin"
+  NODE_VERSION: "22.x"
+
+jobs:
+  run-tests:
+    name: Odoo + Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2 & 3. Node.js + NPM Cache ───────────────────────────────────────
+      # setup-node natively handles caching for npm, replacing the manual Cache@2 task
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # ── 4. npm ci ────────────────────────────────────────────────────────
+      - name: Install NPM dependencies
+        run: npm ci
+
+      # ── 5. Cache & Install Playwright browsers ───────────────────────────
+      # We cache the Playwright binary directory to speed up runs
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium + OS deps
+        # Only download browsers if there isn't an exact cache hit, but always install OS deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # ── 6. Build image + start stack ─────────────────────────────────────
+      - name: Start Docker infrastructure (docker compose up --build)
+        run: |
+          echo "=== Building Odoo image and starting the stack ==="
+          docker compose up -d --build
+          echo ""
+          echo "=== Initial container state ==="
+          docker compose ps
+
+      # ── 7. Wait for all three phases of start-odoo.sh ────────────────────
+      - name: Wait for Odoo initialization
+        run: |
+          chmod +x ./scripts/wait-for-odoo.sh
+          ./scripts/wait-for-odoo.sh http://localhost:8069/web/login 100 6
+
+      # ── 8. Confirm PostgREST is reachable ────────────────────────────────
+      - name: Confirm PostgREST is ready
+        run: |
+          echo "=== Checking PostgREST at http://localhost:3000 ==="
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:3000/ > /dev/null 2>&1; then
+              echo "PostgREST is ready (attempt $i)"
+              exit 0
+            fi
+            echo "  attempt $i/10: not ready, waiting 3s..."
+            sleep 3
+          done
+          echo "ERROR: PostgREST did not start. Odoo logs:"
+          docker compose logs --tail=40 odoo
+          echo "API container logs:"
+          docker compose logs api
+          exit 1
+
+      # ── 9. Run Playwright E2E tests ──────────────────────────────────────
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          CI: "true"
+
+      # ── 10. Publish Playwright HTML report ───────────────────────────────
+      # if: always() ensures this runs even if the previous test step fails
+      - name: Upload Playwright HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      # ── 11. Publish failure traces & JUnit XML ───────────────────────────
+      # if: failure() ensures we only grab the heavy trace payloads if a test broke
+      - name: Upload failure traces and JUnit results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-traces
+          path: test-results/
+          retention-days: 14
+
+      # ── 12. Always tear down ─────────────────────────────────────────────
+      # Ensures the runner environment is cleaned up. (Standard GHA runners are
+      # ephemeral, but this is good practice for self-hosted consistency).
+      - name: Docker compose down (cleanup)
+        if: always()
+        run: docker compose down -v --remove-orphans
