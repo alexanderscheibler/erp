@@ -15,9 +15,7 @@ export class PosPage extends BasePage {
 
   /** Navigate to the POS dashboard from the backend. */
   async openDashboard(): Promise<void> {
-    await this.openApp("Point of Sale");
-    await this.waitForIdle();
-  }
+    await this.openApp("Point of Sale");  }
 
   /**
    * Open (or resume) a POS session.
@@ -61,13 +59,13 @@ export class PosPage extends BasePage {
       await searchInput.fill(productName);
       await this.page.waitForTimeout(500); // debounce
       await this.page
-        .locator(".product-list .product-name, .productlist .product-name", { hasText: productName })
+        .locator(".product-list .product-name, .productlist .product-name", {
+          hasText: productName,
+        })
         .first()
         .click();
       await searchInput.fill(""); // clear search so subsequent adds work
     }
-
-    await this.waitForIdle();
   }
 
   /** Set the quantity of the currently selected order line. */
@@ -80,17 +78,18 @@ export class PosPage extends BasePage {
   /** Proceed to payment and complete a cash payment for the full amount. */
   async checkoutWithCash(): Promise<void> {
     await this.page.getByRole("button", { name: /Payment/i }).click();
-    await this.waitForIdle();
-
     // Select Cash payment method
-    await this.page.locator(".payment-method-button, button.paymentmethod", {
-      hasText: /Cash/i,
-    }).click();
+    await this.page
+      .locator(".payment-method-button, button.paymentmethod", {
+        hasText: /Cash/i,
+      })
+      .click();
 
     // Confirm the exact amount (Odoo pre-fills the due amount)
-    await this.page.getByRole("button", { name: /Validate|Send/i }).first().click();
-    await this.waitForIdle();
-  }
+    await this.page
+      .getByRole("button", { name: /Validate|Send/i })
+      .first()
+      .click();  }
 
   /**
    * Assert the receipt screen is shown after a successful payment.
@@ -99,19 +98,20 @@ export class PosPage extends BasePage {
   async assertReceiptVisible(): Promise<void> {
     await expect(
       this.page.locator(".receipt-screen, .pos-receipt-container"),
-      "Receipt screen should appear after successful checkout"
+      "Receipt screen should appear after successful checkout",
     ).toBeVisible({ timeout: 15_000 });
   }
 
   /** Click "New Order" on the receipt screen to return to the product screen. */
   async startNewOrder(): Promise<void> {
-    await this.page.getByRole("button", { name: /New Order/i }).click();
-    await this.waitForIdle();
-  }
+    await this.page.getByRole("button", { name: /New Order/i }).click();  }
 
   /** Close the POS session from the hamburger/session menu. */
   async closeSession(): Promise<void> {
-    await this.page.locator(".pos-top-bar .o_menu_toggle, button[aria-label='Close']").first().click();
+    await this.page
+      .locator(".pos-top-bar .o_menu_toggle, button[aria-label='Close']")
+      .first()
+      .click();
     await this.page.getByRole("menuitem", { name: /Close/i }).click();
 
     // Closing control modal
@@ -119,7 +119,5 @@ export class PosPage extends BasePage {
     if (await closeModal.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await closeModal.getByRole("button", { name: /Close/i }).click();
     }
-
-    await this.waitForIdle();
   }
 }

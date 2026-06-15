@@ -1,0 +1,185 @@
+# azure-pipelines.yml  — ERP E2E Regression Pipeline
+#
+# What this does, in order:
+#   1. Checks out the repo on a fresh Ubuntu hosted agent (Docker pre-installed)
+#   2. Installs Node 22 + Playwright Chromium (both cached across runs)
+#   3. Runs `docker compose up --build`:
+#        - builds the custom Odoo image from the Dockerfile
+#        - starts Postgres, Odoo, and PostgREST
+#   4. Waits for Odoo to complete all three phases in start-odoo.sh:
+#        Phase 1  --stop-after-init  (module install + demo data)  ~3-5 min
+#        Phase 2  odoo shell         (shelves, stock seed)         ~1 min
+#        Phase 3  exec odoo          (HTTP server up)              immediate
+#   5. Runs Playwright tests
+#   6. Publishes JUnit results, HTML report, and failure traces
+#   7. Tears down (docker compose down -v removes volumes for a clean next run)
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  ODOO_BASE_URL: "http://localhost:8069"
+  ODOO_USER: "admin"
+  ODOO_PASSWORD: "admin"
+  NODE_VERSION: "22.x"
+
+stages:
+  - stage: E2E
+    displayName: "E2E Regression Suite"
+    jobs:
+      - job: RunTests
+        displayName: "Odoo + Playwright"
+        # Budget:
+        #   docker build + pull odoo:19   ~3 min (first run; cached layers on re-run)
+        #   start-odoo.sh phases 1+2      ~5-8 min on a hosted agent
+        #   Playwright tests              ~3-5 min
+        # 45 min is a comfortable ceiling; tighten once you have baseline run times.
+        timeoutInMinutes: 45
+
+        steps:
+          # ── 1. Checkout ──────────────────────────────────────────────────────
+          - checkout: self
+            displayName: "Checkout repository"
+
+          # ── 2. Node.js ───────────────────────────────────────────────────────
+          - task: NodeTool@0
+            displayName: "Install Node.js $(NODE_VERSION)"
+            inputs:
+              versionSpec: "$(NODE_VERSION)"
+
+          # ── 3. Cache node_modules ────────────────────────────────────────────
+          - task: Cache@2
+            displayName: "Cache node_modules"
+            inputs:
+              key: 'npm | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: node_modules
+
+          # ── 4. npm ci ────────────────────────────────────────────────────────
+          - script: npm ci
+            displayName: "npm ci"
+
+          # ── 5. Cache Playwright browsers ─────────────────────────────────────
+          - task: Cache@2
+            displayName: "Cache Playwright browsers"
+            inputs:
+              key: 'playwright | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                playwright | "$(Agent.OS)"
+              path: $(HOME)/.cache/ms-playwright
+
+          - script: npx playwright install --with-deps chromium
+            displayName: "Install Playwright Chromium + OS deps"
+
+          # ── 6. Build image + start stack ─────────────────────────────────────
+          # --build forces a rebuild of the custom Odoo image from the Dockerfile.
+          # On a clean hosted agent this always runs; the odoo:19 base layer is
+          # pulled once and cached for the rest of the job.
+          - script: |
+              echo "=== Building Odoo image and starting the stack ==="
+              docker compose up -d --build
+              echo ""
+              echo "=== Initial container state ==="
+              docker compose ps
+            displayName: "docker compose up --build"
+
+          # ── 7. Wait for all three phases of start-odoo.sh ────────────────────
+          # Odoo won't serve HTTP until Phase 3. The script polls the login page
+          # and exits 0 only when it returns a real Odoo response.
+          #
+          # 100 attempts × 6 s = 600 s (10 min). This covers the worst-case
+          # cold boot on a hosted agent and stays safely inside the Docker
+          # healthcheck window (docker-compose.yml: 240s + 30×15s = 690s).
+          #
+          # PostgREST depends on `odoo: condition: service_healthy`, so once
+          # the wait script succeeds the full stack (Odoo + PostgREST) is ready.
+          - script: |
+              chmod +x ./scripts/wait-for-odoo.sh
+              ./scripts/wait-for-odoo.sh http://localhost:8069/web/login 100 6
+            displayName: "Wait for Odoo (all three phases)"
+
+          # ── 8. Confirm PostgREST is reachable before running tests ───────────
+          - script: |
+              echo "=== Checking PostgREST at http://localhost:3000 ==="
+              for i in $(seq 1 10); do
+                if curl -sf http://localhost:3000/ > /dev/null 2>&1; then
+                  echo "PostgREST is ready (attempt $i)"
+                  exit 0
+                fi
+                echo "  attempt $i/10: not ready, waiting 3s..."
+                sleep 3
+              done
+              echo "ERROR: PostgREST did not start. Odoo logs:"
+              docker compose logs --tail=40 odoo
+              echo "API container logs:"
+              docker compose logs api
+              exit 1
+            displayName: "Confirm PostgREST is ready"
+
+          # ── 9. Run Playwright E2E tests ───────────────────────────────────────
+          # continueOnError=true so the artifact/cleanup steps always run.
+          # The job is actually failed by step 10 (PublishTestResults with
+          # failTaskOnFailedTests=true) once the JUnit report is uploaded.
+          - script: |
+              npx playwright test
+            displayName: "Run Playwright E2E tests"
+            continueOnError: true
+            env:
+              ODOO_BASE_URL: $(ODOO_BASE_URL)
+              ODOO_USER: $(ODOO_USER)
+              ODOO_PASSWORD: $(ODOO_PASSWORD)
+              CI: "true"
+
+          # ── 10. Publish JUnit → ADO Test Plans ───────────────────────────────
+          # This step is what fails the pipeline when tests fail. Separating
+          # it from step 9 (continueOnError) ensures artifacts publish first.
+          - task: PublishTestResults@2
+            displayName: "Publish JUnit results to ADO"
+            condition: always()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "test-results/junit.xml"
+              testRunTitle: "ERP E2E — $(Build.SourceBranchName) #$(Build.BuildNumber)"
+              failTaskOnFailedTests: true
+
+          # ── 11. Publish Playwright HTML report ───────────────────────────────
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish Playwright HTML report"
+            condition: always()
+            inputs:
+              targetPath: "playwright-report"
+              artifact: "playwright-report"
+              publishLocation: "pipeline"
+
+          # ── 12. Publish failure traces ────────────────────────────────────────
+          # condition: failed() triggers when step 10 fails the job (test
+          # failures). The test-results folder holds Playwright traces (.zip)
+          # and screenshots that the HTML report links to.
+          - task: PublishPipelineArtifact@1
+            displayName: "Publish failure traces"
+            condition: failed()
+            inputs:
+              targetPath: "test-results"
+              artifact: "test-results-traces"
+              publishLocation: "pipeline"
+
+          # ── 13. Always tear down ──────────────────────────────────────────────
+          # -v removes named volumes (odoo-db, odoo-web) so the NEXT CI run
+          # starts with a completely clean database — matching the local
+          # `npm run e2e` behaviour and the specs' "fully independent" design.
+          - script: |
+              docker compose down -v --remove-orphans
+            displayName: "docker compose down (cleanup)"
+            condition: always()
