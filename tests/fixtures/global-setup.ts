@@ -8,32 +8,26 @@ const STORAGE_STATE_PATH = path.join(__dirname, "../../test-results/.auth/user.j
 /**
  * global-setup.ts
  * Runs once before the entire test suite.
- * Logs in as admin, provisions the required ERP environment settings,
- * and saves the browser storage state so individual specs don't need
- * to re-authenticate.
+ * Logs in as admin and saves the browser storage state so individual
+ * specs don't need to re-authenticate (saves ~10s per test).
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
   // Ensure the auth directory exists
   fs.mkdirSync(path.dirname(STORAGE_STATE_PATH), { recursive: true });
 
   const browser = await chromium.launch();
-
-  // Safely grab the baseURL from the config
-  const baseURL =
-    config.projects[0]?.use?.baseURL || process.env.ODOO_BASE_URL || "http://localhost:8069";
-
   const context = await browser.newContext({
-    baseURL: baseURL,
+    baseURL: config.projects[0].use.baseURL,
   });
   const page = await context.newPage();
 
-  // 1. Log in using the LoginPage POM
   const loginPage = new LoginPage(page);
   await loginPage.goto();
-  await loginPage.login(process.env.ODOO_USER ?? "admin", process.env.ODOO_PASSWORD ?? "admin");
-  console.log("✅ Authenticated as admin.");
+  await loginPage.login(
+    process.env.ODOO_USER ?? "admin",
+    process.env.ODOO_PASSWORD ?? "admin"
+  );
 
-  // 2. Save the authenticated state and close out
   await context.storageState({ path: STORAGE_STATE_PATH });
   await browser.close();
 
