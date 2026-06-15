@@ -1,6 +1,8 @@
 # ERP Test Suite
 ### Supply Chain End-to-End demo
 
+[![E2E Test Suite](https://github.com/alexanderscheibler/erp/actions/workflows/e2e-regression.yml/badge.svg)](https://github.com/alexanderscheibler/erp/actions/workflows/e2e-regression.yml)
+
 When dealing with data integrity, with products, stock, prices, values that need to be accurate, it's not enough to have an automated test running against the **user-facing** part of the system.
 
 A transfer can validate, stock can appear to move, and the operator closes the tab - but the database may never have committed the change (or may have commited it incorrectly). 
