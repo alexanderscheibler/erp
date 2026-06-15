@@ -69,15 +69,24 @@ Every assertion uses Playwright's native auto-retry.
 
 ## Running locally
 
+Requirements:
+Docker, Node.js 22 with Yarn.
+
 ```bash
-# Start the full stack
+# Install dependencies
+yarn install --frozen-lockfile
+
+# Install Playwright Chromium + OS deps
+yarn playwright install --with-deps chromium
+        
+# Start the full stack of containers
 docker compose up -d
 
 # Run all specs
-npx playwright test
+yarn run test
 
 # Open the HTML report
-npx playwright show-report
+yarn run test:report
 ```
 
 ---
