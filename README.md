@@ -17,7 +17,7 @@ I built this demo to demonstrate this.
 
 ## What it covers
 
-Three basic operations in the core of any product-based supply chain. 
+**The happy path** for three basic operations in the core of any product-based supply chain. 
 
 | # | Operation                            | What it proves |
 |---|--------------------------------------|----------------|
@@ -83,10 +83,10 @@ yarn playwright install --with-deps chromium
 docker compose up -d
 
 # Run all specs
-yarn run test
+yarn test
 
 # Open the HTML report
-yarn run test:report
+yarn test:report
 ```
 
 ---
