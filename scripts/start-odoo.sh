@@ -66,6 +66,26 @@ for p in products[3:]:
 env.cr.commit()
 print(f"SUCCESS: Seeded {seeded} products across Shelf A and Shelf B.")
 
+# Route ALL outgoing email to the MailHog sink so the POS "email receipt"
+# feature can be verified end-to-end without a real mail server. Odoo prefers
+# an ir.mail_server record over the CLI --smtp fallback, so we make MailHog the
+# only one. MailHog speaks plain SMTP on :1025 with no auth/TLS.
+try:
+    env['ir.mail_server'].sudo().search([]).unlink()
+    env['ir.mail_server'].sudo().create({
+        'name': 'MailHog',
+        'smtp_host': 'mailhog',
+        'smtp_port': 1025,
+        'smtp_encryption': 'none',
+    })
+    # A valid catchall/from domain so Odoo doesn't reject the message pre-send.
+    env['ir.config_parameter'].sudo().set_param('mail.catchall.domain', 'example.com')
+    env.cr.commit()
+    print("SUCCESS: Outgoing mail routed to MailHog (mailhog:1025).")
+except Exception as e:
+    env.cr.rollback()
+    print(f"WARNING: MailHog mail routing setup failed: {repr(e)}")
+
 # PROPER FIX: Process orderpoints synchronously before server boot
 # The scheduler sits on 'stock.rule', not 'procurement.group'.
 try:

@@ -2,6 +2,7 @@ import { test as base, type BrowserContext } from "@playwright/test";
 import { InventoryPage } from "../pages/InventoryPage";
 import { PosPage } from "../pages/PosPage";
 import { PostgrestClient } from "@utils/db";
+import { MailhogClient } from "@utils/mail";
 import * as path from "path";
 
 const STORAGE_STATE_PATH = path.join(__dirname, "../../test-results/.auth/user.json");
@@ -16,6 +17,12 @@ type ErpFixtures = {
    * http://localhost:3000); see utils/db/README.md.
    */
   db: PostgrestClient;
+  /**
+   * MailHog HTTP API client for verifying that outgoing email (the POS "email
+   * receipt") was actually captured by the SMTP sink. Config from env
+   * (MAILHOG_URL, default http://localhost:8025).
+   */
+  mailhog: MailhogClient;
 };
 
 /**
@@ -32,6 +39,13 @@ export const test = base.extend<ErpFixtures>({
   // eslint-disable-next-line no-empty-pattern
   db: async ({}, use) => {
     await use(new PostgrestClient());
+  },
+
+  // Stateless HTTP client; one per test is fine (see `db` for the empty-pattern
+  // rationale).
+  // eslint-disable-next-line no-empty-pattern
+  mailhog: async ({}, use) => {
+    await use(new MailhogClient());
   },
 
   authenticatedContext: async ({ browser }, use) => {

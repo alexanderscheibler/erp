@@ -13,11 +13,26 @@ services:
     volumes:
       - odoo-db:/var/lib/postgresql/data
 
+  # Fake SMTP sink: Odoo delivers all outgoing mail here (see start-odoo.sh,
+  # which points an ir.mail_server at mailhog:1025). Nothing is actually sent;
+  # captured messages are queryable over the HTTP API on :8025, which the POS
+  # email-receipt test asserts against.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025" # SMTP (Odoo → MailHog)
+      - "8025:8025" # HTTP API + web UI (tests + humans)
+    # No healthcheck: the slim MailHog image ships without curl/wget/nc, and
+    # Odoo only needs the container started (service_started) for the hostname
+    # to resolve — MailHog is ready to accept SMTP almost immediately.
+
   odoo:
     build: .
     depends_on:
       db:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     ports:
       - "8069:8069"
     environment:
